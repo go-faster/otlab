@@ -6,6 +6,7 @@ import (
 	"io"
 	"math/rand"
 	"slices"
+	"time"
 
 	"github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/ch-go/proto"
@@ -38,7 +39,6 @@ func main() {
 		if err != nil {
 			return err
 		}
-
 		rnd := rand.New(rand.NewSource(0)) // #nosec G404
 		newResource := func() []byte {
 			attrs := slices.Clone(res.Attributes())
@@ -49,32 +49,42 @@ func main() {
 			}
 			return data
 		}
-
-		spd := speed.Start(ctx, "inserts")
+		v := newResource()
+		h := city.Hash128(v)
+		now := time.Now()
 
 		g, ctx := errgroup.WithContext(ctx)
 		for j := 0; j < arg.Workers; j++ {
 			g.Go(func() error {
-				v := newResource()
-				h := city.Hash128(v)
 				client, err := ch.Dial(ctx, ch.Options{})
 				if err != nil {
 					return err
 				}
 				var (
-					id    proto.ColUInt128
-					value proto.ColStr
-					total int
+					id       proto.ColUInt128
+					resource proto.ColUInt128
+					attrs    proto.ColUInt128
+					value    proto.ColFloat64
 				)
+				ts := new(proto.ColDateTime64).WithPrecision(proto.PrecisionNano)
 				input := proto.Input{
 					{Name: "id", Data: &id},
+					{Name: "resource", Data: &resource},
+					{Name: "attributes", Data: &attrs},
+					{Name: "timestamp", Data: ts},
 					{Name: "value", Data: &value},
 				}
+				spd := speed.Start(ctx, "inserts")
+
+				var total int
 				fillBatch := func() {
 					input.Reset()
 					for i := 0; i < arg.Block; i++ {
 						id.Append(proto.UInt128(h))
-						value.AppendBytes(v)
+						resource.Append(proto.UInt128(h))
+						attrs.Append(proto.UInt128(h))
+						ts.Append(now)
+						value.Append(1.0)
 					}
 					spd.Inc(arg.Block)
 					total += arg.Block

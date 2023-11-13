@@ -10,6 +10,17 @@ create table values
         ORDER BY (id, resource, attributes, timestamp)
         SETTINGS index_granularity = 8192;
 
+create table values_null
+(
+    id         UInt128,          -- hash(name)
+    resource   UInt128,          -- hash(resource)   -> resources.id
+    attributes UInt128,          -- hash(attributes) -> attributes.id
+    timestamp  DateTime64(9),    -- ts
+    value      Float64
+)
+    engine = Null;
+
+
 create table metrics(name  String)
   engine = ReplacingMergeTree ORDER BY name;
 
@@ -18,10 +29,16 @@ create table metrics(name  String)
 create table resources
 (
     id     UInt128, -- hash
-    metric UInt128, -- hash(metric) -> metrics.id
     value  String   -- value
 )
-engine = ReplacingMergeTree ORDER BY (id, metric);
+engine = ReplacingMergeTree ORDER BY (id);
+
+create table resources_null
+(
+    id     UInt128, -- hash
+    value  String   -- value
+)
+    engine = Null;
 
 create table attributes
 (

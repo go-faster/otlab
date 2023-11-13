@@ -25,8 +25,8 @@ type Speed struct {
 }
 
 // Inc increments the speed counter by v.
-func (s *Speed) Inc(v uint64) {
-	s.counter.Add(v)
+func (s *Speed) Inc(v int) {
+	s.counter.Add(uint64(v))
 }
 
 func (s *Speed) watch(lg *zap.Logger) {
