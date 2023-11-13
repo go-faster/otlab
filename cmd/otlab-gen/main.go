@@ -3,11 +3,10 @@ package main
 import (
 	"context"
 	"flag"
-	"io"
 	"math/rand"
+	"os"
 	"slices"
 
-	"github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/ch-go/proto"
 	"github.com/go-faster/city"
 	"github.com/go-faster/errors"
@@ -16,7 +15,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/go-faster/otlab/internal/model"
-	"github.com/go-faster/otlab/internal/speed"
 )
 
 func main() {
@@ -27,10 +25,6 @@ func main() {
 		}
 		flag.IntVar(&arg.ResourceCount, "resource-count", 100_000_000, "resource count")
 		flag.Parse()
-		client, err := ch.Dial(ctx, ch.Options{})
-		if err != nil {
-			return err
-		}
 		res, err := app.Resource(ctx)
 		if err != nil {
 			return err
@@ -48,38 +42,53 @@ func main() {
 		var (
 			id    proto.ColUInt128
 			value proto.ColStr
+			buf   proto.Buffer
 		)
 		input := proto.Input{
 			{Name: "id", Data: &id},
 			{Name: "value", Data: &value},
 		}
-		spd := speed.Start(ctx, "inserts")
 		var total int
 		fillBatch := func() {
 			input.Reset()
-			const size = 100_000
+			const size = 200_000
 			for i := 0; i < size; i++ {
 				v := newResource()
 				h := city.Hash128(v)
 				id.Append(proto.UInt128(h))
 				value.AppendBytes(v)
 			}
-			spd.Inc(size)
 			total += size
 		}
-		fillBatch()
-		if err := client.Do(ctx, ch.Query{
-			Input: input,
-			Body:  input.Into("resources"),
-			OnInput: func(ctx context.Context) error {
-				if total >= arg.ResourceCount {
-					return io.EOF
-				}
-				fillBatch()
-				return nil
-			},
-		}); err != nil {
-			return errors.Wrap(err, "resources")
+		write := func() error {
+			// Write new block to io.Writer.
+			//
+			// You can write multiple blocks in sequence.
+			b := proto.Block{
+				Rows:    id.Rows(),
+				Columns: len(input),
+			}
+			// Note that we are using version 54451, proto.Version will fail.
+			if err := b.EncodeRawBlock(&buf, 54451, input); err != nil {
+				return errors.Wrap(err, "encode")
+			}
+
+			// Write buffer to output io.Writer. In out case, it is os.Stdout.
+			if _, err := os.Stdout.Write(buf.Buf); err != nil {
+				return errors.Wrap(err, "write")
+			}
+
+			return nil
+		}
+
+		for {
+			if total >= arg.ResourceCount {
+				break
+			}
+			fillBatch()
+			if err := write(); err != nil {
+				return errors.Wrap(err, "write")
+			}
 		}
 
 		return nil

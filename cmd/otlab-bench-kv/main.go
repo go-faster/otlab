@@ -24,7 +24,7 @@ func main() {
 		var arg struct {
 			ResourceCount int
 		}
-		flag.IntVar(&arg.ResourceCount, "resource-count", 1_000_000_000, "resource count")
+		flag.IntVar(&arg.ResourceCount, "resource-count", 100_000_000, "resource count")
 		flag.Parse()
 		client, err := ch.Dial(ctx, ch.Options{})
 		if err != nil {

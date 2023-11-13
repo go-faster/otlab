@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/go-faster/otlab/internal/model"
-	"github.com/go-faster/otlab/internal/speed"
 )
 
 func main() {
@@ -36,41 +35,51 @@ func main() {
 			return err
 		}
 		rnd := rand.New(rand.NewSource(0)) // #nosec G404
-		newResource := func() []byte {
+		newResource := func() (out []proto.KV[string, string], data []byte) {
 			attrs := slices.Clone(res.Attributes())
 			attrs = append(attrs, attribute.Int("service.id", rnd.Int()))
-			data, err := model.MarshalAttrSet(attribute.NewSet(attrs...))
+			set := attribute.NewSet(attrs...)
+			iter := set.Iter()
+			for iter.Next() {
+				a := iter.Attribute()
+				out = append(out, proto.KV[string, string]{
+					Key:   string(a.Key),
+					Value: a.Value.Emit(),
+				})
+			}
+			data, err = model.MarshalAttrSet(set)
 			if err != nil {
 				panic(err)
 			}
-			return data
+			return out, data
 		}
 		var (
-			id    proto.ColUInt128
-			value proto.ColStr
+			id     proto.ColUInt128
+			values = proto.NewMap[string, string](
+				new(proto.ColStr),
+				new(proto.ColStr),
+			)
 		)
 		input := proto.Input{
 			{Name: "id", Data: &id},
-			{Name: "value", Data: &value},
+			{Name: "value", Data: values},
 		}
-		spd := speed.Start(ctx, "inserts")
 		var total int
 		fillBatch := func() {
 			input.Reset()
 			const size = 100_000
 			for i := 0; i < size; i++ {
-				v := newResource()
-				h := city.Hash128(v)
+				v, data := newResource()
+				h := city.Hash128(data)
 				id.Append(proto.UInt128(h))
-				value.AppendBytes(v)
+				values.AppendKV(v)
 			}
-			spd.Inc(size)
 			total += size
 		}
 		fillBatch()
 		if err := client.Do(ctx, ch.Query{
 			Input: input,
-			Body:  input.Into("resources"),
+			Body:  input.Into("resources_map"),
 			OnInput: func(ctx context.Context) error {
 				if total >= arg.ResourceCount {
 					return io.EOF
@@ -79,7 +88,7 @@ func main() {
 				return nil
 			},
 		}); err != nil {
-			return errors.Wrap(err, "resources")
+			return errors.Wrap(err, "insert")
 		}
 
 		return nil

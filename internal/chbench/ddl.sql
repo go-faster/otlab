@@ -17,28 +17,36 @@ create table metrics(name  String)
 --- estimating as 10_000_000 (10M) for 100k servers with 100 services each.
 create table resources
 (
-    id    UInt128, -- hash
-    value String   -- value
+    id     UInt128, -- hash
+    metric UInt128, -- hash(metric) -> metrics.id
+    value  String   -- value
 )
-engine = ReplacingMergeTree ORDER BY id;
+engine = ReplacingMergeTree ORDER BY (id, metric);
 
 create table attributes
 (
-    id    UInt128,  -- hash
-    value String    -- value
+    metric UInt128,  -- hash(metric) -> metrics.id
+    id     UInt128,  -- hash
+    value  String    -- value
 )
-engine = ReplacingMergeTree ORDER BY id;
+engine = ReplacingMergeTree ORDER BY (metric, id);
 
 
 create table resources_kv
 (
-    id    UInt128, -- hash
-
+    id     UInt128, -- hash
     -- map(key, value)
     keys   Array(String),
     values Array(String)
 )
-    engine = ReplacingMergeTree ORDER BY id;
+    engine = ReplacingMergeTree ORDER BY (id);
+
+create table resources_map
+(
+    id     UInt128,  -- hash
+    value  Map(String, String)
+)
+    engine = ReplacingMergeTree ORDER BY (id);
 
 -- CREATE VIEW meta.table_info AS
 select
